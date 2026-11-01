@@ -516,14 +516,16 @@ function drawQR(url){
   u.textContent=SHARE_URL.replace(/^https?:\/\//,"");
   q.innerHTML=QRSRC?'<img src="'+QRSRC+'" alt="QR code لرابط اللعبة" width="220" height="220">':'<div class="qr-miss">الـ QR بيظهر لما الصفحة تكون مرفوعة على موقع.</div>';
 }
-const SFX=(()=>{let ctx=null,master=null,bed=null;let on=true;try{on=localStorage.getItem("sudanMute")!=="1"}catch(e){}
+const SFX=(()=>{let ctx=null,master=null,bed=null,music=null,musicLoading=false;let on=true;try{on=localStorage.getItem("sudanMute")!=="1"}catch(e){}
   const ac=()=>{if(!ctx){const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;ctx=new C();master=ctx.createGain();master.gain.value=.8;master.connect(ctx.destination)}if(ctx.state==="suspended")ctx.resume();return ctx};
   const tone=(f,t0,d,type,g,f2)=>{const c=ac();if(!c||!on)return;const o=c.createOscillator(),a=c.createGain();o.type=type||"sine";o.frequency.setValueAtTime(f,c.currentTime+t0);if(f2)o.frequency.exponentialRampToValueAtTime(f2,c.currentTime+t0+d);
     a.gain.setValueAtTime(0,c.currentTime+t0);a.gain.linearRampToValueAtTime(g||.2,c.currentTime+t0+.008);a.gain.exponentialRampToValueAtTime(.0001,c.currentTime+t0+d);o.connect(a);a.connect(master);o.start(c.currentTime+t0);o.stop(c.currentTime+t0+d+.05)};
   const noise=(t0,d,g,fq)=>{const c=ac();if(!c||!on)return;const n=c.createBuffer(1,c.sampleRate*d,c.sampleRate),x=n.getChannelData(0);for(let i=0;i<x.length;i++)x[i]=(Math.random()*2-1)*Math.pow(1-i/x.length,3);
     const s=c.createBufferSource(),bp=c.createBiquadFilter(),a=c.createGain();s.buffer=n;bp.type="bandpass";bp.frequency.value=fq||2500;a.gain.value=g||.25;s.connect(bp);bp.connect(a);a.connect(master);s.start(c.currentTime+t0)};
+  const loadMusic=()=>{const c=ac();if(!c||music||musicLoading)return;musicLoading=true;
+    fetch("music.mp3").then(r=>{if(!r.ok)throw 0;return r.arrayBuffer()}).then(b=>new Promise((ok,no)=>c.decodeAudioData(b,ok,no))).then(buf=>{music=buf;if(CUR_VIEW==="game"&&!S.locked&&on&&!bed)api.startBed()}).catch(()=>{});};
   const api={
-    unlock(){ac()},
+    unlock(){ac();loadMusic()},
     get on(){return on},
     toggle(){on=!on;try{localStorage.setItem("sudanMute",on?"0":"1")}catch(e){}if(!on)api.stopBed(true);else if(CUR_VIEW==="game"&&!S.locked)api.startBed();return on},
     tap(){noise(0,.03,.35,3200);tone(1400,0,.04,"sine",.08)},
@@ -531,7 +533,12 @@ const SFX=(()=>{let ctx=null,master=null,bed=null;let on=true;try{on=localStorag
     correct(){[523.25,659.25,783.99,1046.5].forEach((f,i)=>tone(f,i*.085,.35,"triangle",.22));tone(1568,.34,.5,"sine",.08)},
     wrong(){tone(196,0,.28,"sawtooth",.12,150);tone(147,.22,.45,"sawtooth",.12,98)},
     fanfare(){[392,523.25,659.25,783.99].forEach((f,i)=>tone(f,i*.13,.3,"triangle",.2));[523.25,659.25,783.99,1046.5].forEach(f=>tone(f,.56,1.1,"triangle",.12))},
-    startBed(){const c=ac();if(!c||!on)return;api.stopBed(true);
+    startBed(){const c=ac();if(!c||!on)return;api.stopBed(true);loadMusic();
+      if(music){const g=c.createGain();g.gain.setValueAtTime(0,c.currentTime);g.gain.linearRampToValueAtTime(.32,c.currentTime+.8);g.connect(master);
+        const src=c.createBufferSource();src.buffer=music;src.loop=true;src.loopStart=.06;src.loopEnd=music.duration-.06;src.connect(g);
+        src.start(0,.06+Math.random()*(music.duration-1));
+        const hb=setInterval(()=>{if(!on)return;if(S.left<=5){tone(62,0,.16,"sine",.34,40);tone(58,.14,.14,"sine",.24,38)}},500);
+        bed={g,stop(){clearInterval(hb);try{src.stop(c.currentTime+.6)}catch(e){}}};return}
       const g=c.createGain();g.gain.setValueAtTime(0,c.currentTime);g.gain.linearRampToValueAtTime(.16,c.currentTime+1.2);g.connect(master);
       const lp=c.createBiquadFilter();lp.type="lowpass";lp.frequency.value=480;lp.Q.value=6;lp.connect(g);
       const lfo=c.createOscillator(),lg=c.createGain();lfo.frequency.value=2;lg.gain.value=260;lfo.connect(lg);lg.connect(lp.frequency);lfo.start();

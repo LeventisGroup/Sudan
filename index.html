@@ -108,6 +108,11 @@ body.on-screen .foot{display:none}
 .formrow{display:flex;flex-direction:column;gap:6px}.formrow label{font-weight:700;font-size:14px}
 .formrow input{direction:ltr;text-align:left}
 .submit-btn{display:block;text-align:center;text-decoration:none;font-size:20px;padding:16px 28px}
+.sendstat{font-weight:700;color:var(--ok);min-height:1.4em}.sendstat .btn{margin-inline-start:8px}
+.tblwrap{overflow-x:auto;max-height:340px;overflow-y:auto;border-radius:10px}
+.alltbl{width:100%;border-collapse:collapse;font-size:15px;font-variant-numeric:tabular-nums}
+.alltbl th,.alltbl td{padding:8px 10px;text-align:start;border-bottom:1px solid rgba(169,187,212,.15)}
+.alltbl th{position:sticky;top:0;background:var(--night-2);color:var(--sand-dim);font-weight:700}
 #confetti{position:fixed;inset:0;width:100%;height:100%;z-index:6;pointer-events:none}
 .app{min-height:100%;max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:18px;
   padding-block:20px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));box-sizing:border-box}
@@ -348,7 +353,7 @@ function startScreen(){
       <button class="btn" type="submit">ادخل اللعبة</button>
       <p class="hint">30 سؤال، وكل إجابة صح بـ 10 نقاط. كل الفرق بتلعب نفس الأسئلة، والترتيب بيظهر هنا للكل.</p>
     </form>
-    ${SHARED.board.length?`<div class="board pboard"><h3>ترتيب الفرق</h3>${boardList(SHARED.board,S.team,10)}</div>`:""}
+    <div class="board pboard" id="lobbyboard" ${getBoard().length?"":"hidden"}><h3>ترتيب الفرق</h3><div class="lb">${getBoard().length?boardList(getBoard(),S.team,10):""}</div></div>
     <div class="row host-links" id="hostlinks" hidden><button class="btn sm" id="screenbtn">شاشة العرض</button><button class="btn ghost sm" id="host">لوحة المضيف والترتيب</button></div>
   </section>`;
   const t=document.getElementById("team");
@@ -356,6 +361,7 @@ function startScreen(){
   document.getElementById("join").onsubmit=e=>{e.preventDefault();S.team=t.value.trim();if(!S.team){t.focus();return}S.code=SEED;newGame()};
   document.getElementById("host").onclick=()=>hostScreen(true);
   showHostIfOwner();
+  livePoll("lobby",20000);
   document.getElementById("screenbtn").onclick=()=>{H=hostLoad()||{code:String(1000+Math.floor(Math.random()*9000)),board:[]};hostSave(H);screenView()};
 
   
@@ -379,24 +385,17 @@ function hostScreen(fresh){
         <div class="qr-url" id="qrurl"></div>
       </div>
       <div class="board">
-        <h3>الترتيب</h3>
-        <form class="addrow" id="add" autocomplete="off">
-          <input id="bt" maxlength="24" placeholder="اسم الفريق" aria-label="اسم الفريق" required>
-          <input id="bs" inputmode="numeric" maxlength="3" placeholder="من 300" aria-label="النقاط" required>
-          <button class="btn sm" type="submit">أضف</button>
-        </form>
-        <div class="pubstat" id="pubstat" role="status"></div>
+        <h3>الترتيب المباشر</h3>
+        <div class="pubstat" id="allcount" role="status"></div>
         <ol class="ranks" id="ranks"></ol>
-        <div class="row"><button class="btn sm" id="showscreen">شاشة الدخول</button><button class="btn sm" id="showrank">اعرض الترتيب</button><button class="btn ghost sm" id="newround">امسح الترتيب</button><button class="btn ghost sm" id="back">رجوع</button></div>
+        <h3>كل النتايج</h3>
+        <div class="tblwrap"><table class="alltbl"><thead><tr><th>الوقت</th><th>الفريق</th><th>النقاط</th><th>صح</th></tr></thead><tbody id="alltb"></tbody></table></div>
+        <a class="hint" href="https://docs.google.com/spreadsheets/d/1FwOU-jqg88gQw_sZoPBTPftjghHEHgGN8tPLV_Oy0Ws/edit" target="_blank" rel="noopener">افتح شيت النتايج في Google Sheets</a>
+        <div class="row"><button class="btn sm" id="showscreen">شاشة الدخول</button><button class="btn sm" id="showrank">اعرض الترتيب</button><button class="btn ghost sm" id="back">رجوع</button></div>
       </div>
     </div>
   </section>`;
-  drawQR(url);renderBoard();
-  document.getElementById("add").onsubmit=e=>{e.preventDefault();const n=document.getElementById("bt"),v=document.getElementById("bs");
-    const sc=parseInt(v.value.replace(/[٠-٩]/g,d=>"٠١٢٣٤٥٦٧٨٩".indexOf(d)),10);if(!n.value.trim()||isNaN(sc)){v.focus();return}
-    const ex=H.board.find(r=>r.t===n.value.trim());if(ex)ex.s=sc;else H.board.push({t:n.value.trim(),s:sc});
-    hostSave(H);renderBoard();schedulePublish();n.value="";v.value="";n.focus()};
-  document.getElementById("newround").onclick=e=>{const b=e.currentTarget;if(b.dataset.c){H.board=[];hostSave(H);renderBoard();schedulePublish();b.dataset.c="";b.textContent="امسح الترتيب"}else{b.dataset.c=1;b.textContent="متأكد؟ دوس تاني للمسح"}};
+  drawQR(url);renderLive();livePoll("host",10000);
   document.getElementById("back").onclick=startScreen;
   document.getElementById("showscreen").onclick=screenView;
   document.getElementById("showrank").onclick=rankView;
@@ -418,10 +417,10 @@ async function publishBoard(){
     if(c==="conflict")return;
     setStatus(["not_writer","not_granted","capability_disabled","consent_required"].includes(c)?"نشر الترتيب متاح لصاحب اللعبة بس.":c==="rate_limited"?"استنى شوية وجرّب تاني.":"حصلت مشكلة في نشر الترتيب، جرّب تاني.")}
 }
-function rankView(){
+function rankView(refresh){
   CUR_VIEW="rank";clearInterval(S.timer);document.body.classList.add("on-screen");
   if(!H)H=hostLoad()||{code:"",board:[]};
-  const rows=H.board.slice().sort((a,b)=>b.s-a.s);
+  const rows=getBoard().slice().sort((a,b)=>b.s-a.s);
   const pod=[1,0,2].map(i=>rows[i]?`<div class="pod p${i}"><div class="pod-name">${esc(rows[i].t)}</div><div class="pod-score">${rows[i].s}</div><div class="pod-block"><span>${i+1}</span></div></div>`:`<div class="pod p${i} empty"><div class="pod-block"><span>${i+1}</span></div></div>`).join("");
   const rest=rows.slice(3,13).map((r,k)=>`<li><span class="pos">${k+4}</span><span class="nm">${esc(r.t)}</span><span class="sc">${r.s}</span></li>`).join("");
   app.innerHTML=`<div class="stage-wrap"><section class="stage rankstage">
@@ -437,6 +436,7 @@ function rankView(){
   document.getElementById("tojoin").onclick=screenView;
   document.getElementById("fs").onclick=()=>{const el=document.documentElement;try{const p=el.requestFullscreen&&el.requestFullscreen();p&&p.catch&&p.catch(()=>{})}catch(e){}};
   ambient();
+  if(!refresh)livePoll("rank",10000);
 }
 addEventListener("storage",e=>{if(e.key!=="sudanHost")return;H=hostLoad();if(CUR_VIEW==="rank")rankView();else if(CUR_VIEW==="host")renderBoard()});
 function screenView(){
@@ -503,7 +503,7 @@ function renderBoard(){
 function drawQR(url){
   const q=document.getElementById("qr"),u=document.getElementById("qrurl");if(!q)return;
   u.textContent=SHARE_URL.replace(/^https?:\/\//,"");
-  q.innerHTML=QRSRC?'<img src="'+QRSRC+'" alt="QR code لرابط اللعبة" width="220" height="220">':'<div class="qr-miss">الـ QR بيظهر بعد ما الصفحة تترفع على موقع.</div>';
+  q.innerHTML=QRSRC?'<img src="'+QRSRC+'" alt="QR code لرابط اللعبة" width="220" height="220">':'<div class="qr-miss">الـ QR بيظهر لما الصفحة تكون مرفوعة على موقع.</div>';
 }
 function newGame(){
   const r=rng(+S.code*7919);
@@ -555,21 +555,22 @@ function endScreen(){
   CUR_VIEW="end";saveGame("end");
   const pct=S.correct/S.list.length;
   const rank=pct===1?"مؤرخ سوداني أصيل":pct>=.7?"عارف تاريخ بلدك كويس":pct>=.4?"بداية حلوة":"محتاج جولة في المتحف القومي";
-  const mine=SHARED.board;
+  const mine=getBoard();
   app.innerHTML=`<section class="end pop">
     ${LOCKUP()}<h2>نتيجة ${esc(S.team)}</h2>
     <div class="score">${S.score}<small> / ${MAX}</small></div>
     <div class="rank">${rank}</div>
     <div class="best">${S.correct} إجابة صح من ${S.list.length}</div>
-    ${formLink()?`<a class="btn submit-btn" href="${esc(formLink())}" target="_blank" rel="noopener">سجّل نتيجتي</a><p class="hint">هتفتحلك صفحة فيها زرار واحد، دوس «إرسال» ونتيجتك تتسجل.</p>`:""}
-    <div class="row"><button class="btn${formLink()?" ghost":""}" id="copy">انسخ نتيجة الفريق</button><button class="btn ghost" id="home">فريق جديد</button></div>
-    <div class="board pboard"><h3>ترتيب الفرق</h3>${mine.length?boardList(mine,S.team,10):'<p class="hint">سجّل نتيجتك من الزرار اللي فوق، والترتيب هيظهر هنا أول ما يتحدّث.</p>'}</div>
+    <div class="sendstat" id="sendstat" role="status"></div>
+    <div class="row"><button class="btn ghost" id="copy">انسخ نتيجة الفريق</button><button class="btn ghost" id="home">فريق جديد</button></div>
+    <div class="board pboard"><h3>ترتيب الفرق</h3><div id="endboard">${mine.length?boardList(mine,S.team,10):'<p class="hint">الترتيب بيتحمّل…</p>'}</div></div>
     <ol class="review">${S.log.map(l=>`<li><span class="m ${l.ok?"y":"n"}">${l.ok?"✓":"✗"}</span><div>${l.q}<br><small>${l.ok?"":"إجابتك: "+(l.mine?esc(l.mine):"لا شيء")+" · "}الصح: ${esc(l.right)}</small></div></li>`).join("")}</ol>
   </section>`;
   document.getElementById("copy").onclick=async e=>{const b=e.currentTarget;const txt=`Leventis | Sudan Independence Day\nفريق ${S.team}: ${S.score} من ${MAX} نقطة (${S.correct}/${S.list.length} صح)`;
     try{await navigator.clipboard.writeText(txt);b.textContent="اتنسخت ✓"}catch(err){b.textContent="صوّر الشاشة وابعتها"}};
   document.getElementById("home").onclick=()=>{S.team="";clearGame();startScreen()};
   if(pct>=.5&&!endScreen.done)confetti();endScreen.done=true;
+  submitScore();livePoll("end",15000);
 }
 function parseForm(u){
   try{const x=new URL(u);if(!/docs\.google\.com$|forms\.gle$/.test(x.hostname))return null;
@@ -578,7 +579,40 @@ function parseForm(u){
     e.forEach(([k,v])=>{v=v.trim();if(v==="100")score=k;else if(v==="10")correct=k;else name=name||k});
     if(!name||!score)return null;return{base:x.origin+x.pathname,name,score,correct}}catch(err){return null}
 }
-const JOTFORM="https://form.jotform.com/263044820861051";
+const API="https://script.google.com/macros/s/AKfycbxcyacXEFcps7vXuIiwvW-qnmym3imNTIRpyJv_6yNF5i6RTH4BIgZkn1QUjdBAY4wr/exec";
+let LIVE={board:null,all:null,count:0,at:0},liveT=0;
+const getBoard=()=>LIVE.board||SHARED.board||[];
+async function liveFetch(all){
+  if(!API)return false;
+  try{const r=await fetch(API+(all?"?all=1":""),{cache:"no-store"});const j=await r.json();if(!j.ok)return false;
+    LIVE.board=j.board;LIVE.count=j.count;LIVE.at=Date.now();if(all)LIVE.all=j.all;return true}catch(e){return false}
+}
+function livePoll(view,every){clearTimeout(liveT);const tick=async()=>{if(CUR_VIEW!==view)return;
+  const ok=await liveFetch(view==="host");if(ok&&CUR_VIEW===view)liveRender(view);liveT=setTimeout(tick,every)};tick()}
+function liveRender(v){
+  if(v==="lobby"){const el=document.getElementById("lobbyboard");if(el){const b=getBoard();el.hidden=!b.length;el.querySelector(".lb").innerHTML=boardList(b,S.team,10)}}
+  else if(v==="end"){const el=document.getElementById("endboard");if(el){const b=getBoard();el.innerHTML=b.length?boardList(b,S.team,10):'<p class="hint">الترتيب هيظهر هنا أول ما الفرق تخلص.</p>'}}
+  else if(v==="rank")rankView(true);
+  else if(v==="host")renderLive();
+}
+const sentKey=()=>"sudanSent:"+S.team+":"+S.score+":"+S.log.length;
+async function submitScore(){
+  const st=document.getElementById("sendstat");if(!API){if(st)st.textContent="";return}
+  let done=false;try{done=sessionStorage.getItem(sentKey())==="1"}catch(e){}
+  if(done){if(st)st.textContent="نتيجتك متسجلة في الترتيب ✓";return}
+  if(st)st.textContent="بنسجّل نتيجتك…";
+  try{const r=await fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({team:S.team,score:S.score,correct:S.correct,device:(navigator.platform||"").slice(0,40)})});
+    const j=await r.json();if(!j.ok)throw 0;try{sessionStorage.setItem(sentKey(),"1")}catch(e){}
+    if(st)st.innerHTML="نتيجتك اتسجلت في الترتيب ✓";await liveFetch(false);liveRender("end");
+  }catch(e){if(st)st.innerHTML='مقدرناش نسجّل النتيجة. <button class="btn sm" id="resend">جرّب تاني</button>';const b=document.getElementById("resend");if(b)b.onclick=submitScore}
+}
+function renderLive(){
+  const ol=document.getElementById("ranks"),tb=document.getElementById("alltb"),cnt=document.getElementById("allcount");if(!ol)return;
+  const b=getBoard();
+  ol.innerHTML=b.length?b.map((r,i)=>`<li class="${i<3?"top t"+i:""}"><span class="pos">${i+1}</span><span class="nm">${esc(r.t)}</span><span class="sc">${r.s}</span></li>`).join(""):'<li class="empty">لسه محدش خلّص. النتايج بتظهر هنا لوحدها.</li>';
+  if(cnt)cnt.textContent=LIVE.count?`${LIVE.count} نتيجة متسجلة · ${b.length} فريق · آخر تحديث ${new Date(LIVE.at).toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}`:"";
+  if(tb)tb.innerHTML=(LIVE.all||[]).map(r=>`<tr><td>${new Date(r.at).toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"})}</td><td>${esc(r.t)}</td><td>${r.s}</td><td>${r.c}/30</td></tr>`).join("")||'<tr><td colspan="4" class="hint">مفيش نتايج لسه.</td></tr>';
+}
 function formLink(){
   const q=new URLSearchParams();q.set("team",S.team);q.set("score",String(S.score));q.set("correct",String(S.correct));
   return JOTFORM+"?"+q.toString();
